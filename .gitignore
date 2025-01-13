@@ -1,1 +1,18 @@
-go.sum
+# SQLite database files
+*.db
+*.db-shm
+*.db-wal
+
+# Logs
+*.log
+
+# Go build artifacts
+*.exe
+*.out
+*.o
+*.a
+*.so
+
+# Editor/IDE specific files
+*.swp
+
