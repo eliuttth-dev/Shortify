@@ -5,14 +5,17 @@ import(
   "go-url-shortener/internal/handlers"
 )
 
-func SetupRouter() *mux.Router {
+func SetupRouter(dbPath string) (*mux.Router, error) {
   r := mux.NewRouter()
 
-  shortenerHandler := handlers.NewURLShortenerHandler()
+  shortenerHandler, err := handlers.NewURLShortenerHandler(dbPath)
+  if err != nil {
+    return nil, err
+  }
 
   // Routes
   r.HandleFunc("/generate", shortenerHandler.GenerateHandler).Methods("POST")
   r.HandleFunc("/{shortURL}", shortenerHandler.ResolveHandler).Methods("GET")
 
-  return r
+  return r, nil
 }
