@@ -8,7 +8,11 @@ import (
 )
 
 func main(){
-  router := routes.SetupRouter()
+  dbPath := "../urls.db"
+  router, err := routes.SetupRouter(dbPath)
+  if err != nil {
+    log.Fatalf("Failed to set up router: %v", err)
+  }
 
   // Server
   serverAddr := ":3030"
