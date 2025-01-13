@@ -1,0 +1,4 @@
+POST ENDPOINT: 
+curl -X POST -H "Content-Type: application/json" -d '{"original_url": "https://github.com/eliuttth-dev"}' http://localhost:3030/generate
+GET ENDPOINT:
+http://localhost:3030/<CODE>
