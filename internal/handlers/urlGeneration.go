@@ -4,6 +4,8 @@ import (
   "encoding/json"
   "net/http"
   "sync"
+
+  "github.com/gorilla/mux"
 )
 
 type URLShortener struct {
@@ -12,14 +14,14 @@ type URLShortener struct {
   mu      sync.Mutex
 }
 
-func NewURLGeneration() *URLShortener{
+func NewURLGeneration() *URLShortener {
   return &URLShortener{
     mapping: make(map[string]string),
     counter: 1,
   }
 }
 
-// Generates unique short URL
+// Generates a unique short URL
 func (us *URLShortener) GenerateShortURL(originalURL string) string {
   us.mu.Lock()
   defer us.mu.Unlock()
@@ -64,18 +66,18 @@ type URLShortenerHandler struct {
 
 func NewURLShortenerHandler() *URLShortenerHandler {
   return &URLShortenerHandler{
-    Shortener: NewURLShortener(),
+    Shortener: NewURLGeneration(),
   }
 }
 
 // Handles request to generate short URL
-func (h *URLShortenerHandler) GenerateHandler(w http.ResponseWriter, r *http.Request){
+func (h *URLShortenerHandler) GenerateHandler(w http.ResponseWriter, r *http.Request) {
   var body struct {
     OriginalURL string `json:"original_url"`
   }
 
-  if err := json.NewDecoder(r.Body).Decode(&Body); err != nil {
-    http.Error(w, "Invalid request Body", http.StatusBadRequest)
+  if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+    http.Error(w, "Invalid request body", http.StatusBadRequest)
     return
   }
 
@@ -95,9 +97,10 @@ func (h *URLShortenerHandler) GenerateHandler(w http.ResponseWriter, r *http.Req
 }
 
 // Handles request to resolve short URL
-func (h *URLShortenerHandler) ResolveHandler(w http.ResponseWritter, r *http.Request) {
+func (h *URLShortenerHandler) ResolveHandler(w http.ResponseWriter, r *http.Request) {
   vars := mux.Vars(r)
   shortURL := vars["shortURL"]
+
 
   originalURL, exists := h.Shortener.ResolveShortURL(shortURL)
 
@@ -108,3 +111,4 @@ func (h *URLShortenerHandler) ResolveHandler(w http.ResponseWritter, r *http.Req
 
   http.Redirect(w, r, originalURL, http.StatusFound)
 }
+

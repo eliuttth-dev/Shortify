@@ -4,7 +4,7 @@ import (
   "log"
   "net/http"
 
-  "github.com/eliuttth-dev/go-url-shortener/internal/routes"
+  "go-url-shortener/internal/routes"
 )
 
 func main(){

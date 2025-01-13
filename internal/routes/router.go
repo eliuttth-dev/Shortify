@@ -2,7 +2,7 @@ package routes
 
 import(
   "github.com/gorilla/mux"
-  "github.com/eliuttth-dev/go-url-shortener/internal/handlers"
+  "go-url-shortener/internal/handlers"
 )
 
 func SetupRouter() *mux.Router {
