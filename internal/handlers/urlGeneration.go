@@ -114,18 +114,20 @@ func (h *URLShortenerHandler) GenerateHandler(w http.ResponseWriter, r *http.Req
   var body struct {
     OriginalURL string `json:"original_url"`
   }
-
+  
+  // Decode JSON Body
   if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-    http.Error(w, "Invalid request body", http.StatusBadRequest)
+    http.Error(w, "Invalid request body: Please provide a valid JSON payload", http.StatusBadRequest)
     return
   }
 
+  // Check for missing or empty original_url
   if body.OriginalURL == "" {
-    http.Error(w, "original_url is required", http.StatusBadRequest)
+    http.Error(w, "Missing required field: 'original_url' cannot be empty", http.StatusBadRequest)
     return
   }
 
-  // Generate the short URL and handle any errors
+  // Generate the short URL
   shortURL, err := h.Shortener.GenerateShortURL(body.OriginalURL)
   if err != nil {
     http.Error(w, "Failed to generate short URL: " +err.Error(), http.StatusInternalServerError)
@@ -143,15 +145,21 @@ func (h *URLShortenerHandler) GenerateHandler(w http.ResponseWriter, r *http.Req
 func (h *URLShortenerHandler) ResolveHandler(w http.ResponseWriter, r *http.Request) {
   vars := mux.Vars(r)
   shortURL := vars["shortURL"]
-
-
-  originalURL, exists := h.Shortener.ResolveShortURL(shortURL)
-
-  if !exists {
-    http.Error(w, "Short URL not found", http.StatusNotFound)
+  
+  // Check if short URL is empty
+  if shortURL == "" {
+    http.Error(w, "Invalid request: 'shortURL' cannot be empty", http.StatusBadRequest)
     return
   }
 
+  // Resolve the short URL
+  originalURL, exists := h.Shortener.ResolveShortURL(shortURL)
+  if !exists {
+    http.Error(w, "Short URL not found: No record exists for the given 'shortURL'", http.StatusNotFound)
+    return
+  }
+
+  // Redirect to the original URL
   http.Redirect(w, r, originalURL, http.StatusFound)
 }
 
