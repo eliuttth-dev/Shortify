@@ -1,5 +1,5 @@
 a. Add unit tests for the GenerateHandler and ResolveHandler to ensure all edge cases are handled properly -
-[DONE]
+[ DONE ]
 b. Implement more descriptive error messages to help users understand the reason for failures.
 c. Add a cache layer (e.g., Redis) to optimize short URL lookups.
 d. Add support for customizable short URLs provided by users.
