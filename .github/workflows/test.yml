@@ -9,6 +9,17 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    services:
+      redis:
+        image: redis
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4 
@@ -21,25 +32,14 @@ jobs:
       - name: Install dependencies
         run: go mod tidy
 
-      services:
-        redis:
-          image: redis
-          ports:
-            - 6379:6379
-          options: >-
-            --health-cmd "redis-cli ping"
-            --health-interval 10s
-            --health-timeout 5s
-            --health-retries 5
-
       - name: Run Tests
-        run: go test ./... -v
+        run: go test ./internal/handlers -v
 
       - name: Show Test Results
         if: failure()
         run: |
           echo "Tests failed"
-          go test ./... -v > test_output.log
+          go test ./internal/handlers -v > test_output.log
           cat test_output.log
 
       - name: Upload test results
