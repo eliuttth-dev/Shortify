@@ -8,15 +8,22 @@ import (
   "net/http/httptest"
   "os"
   "testing"
+  "time"
+  "context"
 
+  "github.com/redis/go-redis/v9"
   "github.com/gorilla/mux"
   _ "github.com/mattn/go-sqlite3"
 )
 
+// Initializes a temporary SQLite database for testing
 func setupTestDB(t *testing.T) *sql.DB {
+  t.Helper()
+
   // Create a temporary SQLite database for testing
-  dbPath := "../../test_urls.db"
-  os.Remove(dbPath) 
+  dbPath := "./test_urls.db"
+  os.Remove(dbPath)
+
   db, err := sql.Open("sqlite3", dbPath)
   if err != nil {
     t.Fatalf("Failed to set up test database: %v", err)
@@ -42,9 +49,41 @@ func setupTestDB(t *testing.T) *sql.DB {
   return db
 }
 
+// Initializes a temporary Redis client for testing
+func setupTestRedis(t *testing.T) *redis.Client{
+  t.Helper()
+
+  redisAddr := "localhost:6379"
+  client := redis.NewClient(&redis.Options{
+    Addr: redisAddr,
+  })
+
+  // Ensures Redis connectivity
+  ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+  defer cancel()
+
+  if err := client.FlushAll(ctx).Err(); err != nil {
+    t.Fatalf("Failed to flush Redis: %v", err)
+  }
+
+  if err := client.Ping(ctx).Err(); err != nil {
+    t.Fatalf("Failed to connect to Redis: %v", err)
+  }
+
+  t.Cleanup(func(){
+    client.FlushAll(ctx)
+    client.Close()
+  })
+
+  return client
+}
+
+// Test the GenerateHandler
 func TestGenerateHandler(t *testing.T) {
   _ = setupTestDB(t)
-  handler, err := NewURLShortenerHandler("../../test_urls.db")
+  _ = setupTestRedis(t)
+
+  handler, err := NewURLShortenerHandler("./test_urls.db", "localhost:6379")
   if err != nil {
     t.Fatalf("Failed to initialize handler: %v", err)
   }
@@ -81,7 +120,10 @@ func TestGenerateHandler(t *testing.T) {
         if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
           t.Errorf("Failed to decode response: %v", err)
         }
-        if shortURL, exists := body["short_url"]; !exists || shortURL == "" {
+
+        // Validate short URL
+        shortURL, exists := body["short_url"]
+        if !exists || shortURL == "" {
           t.Errorf("Expected a valid short_url, got %v", body)
         }
       }
@@ -89,9 +131,12 @@ func TestGenerateHandler(t *testing.T) {
   }
 }
 
+// Test the ResolveHandler
 func TestResolveHandler(t *testing.T) {
   _ = setupTestDB(t)
-  handler, err := NewURLShortenerHandler("../../test_urls.db")
+  _ = setupTestRedis(t)
+  
+  handler, err := NewURLShortenerHandler("./test_urls.db", "localhost:6379")
   if err != nil {
     t.Fatalf("Failed to initialize handler: %v", err)
   }
