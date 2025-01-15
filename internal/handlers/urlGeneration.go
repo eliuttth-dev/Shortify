@@ -1,11 +1,16 @@
 package handlers
 
 import (
+  "context"
   "database/sql"
   "encoding/json"
   "net/http"
   "sync"
+  "log"
+  "fmt"
+  "time"
 
+  "github.com/redis/go-redis/v9"
   "github.com/gorilla/mux"
   _ "github.com/mattn/go-sqlite3"
 )
@@ -13,10 +18,21 @@ import (
 
 type URLShortener struct {
   db *sql.DB
+  cache *redis.Client
   mu sync.Mutex
 }
 
-func NewURLGeneration(dbPath string) (*URLShortener, error) {
+//  Initializes the URLShortener instance, setting up the SQLite database
+//  and Redis client. It also ensures the necessary database table exists
+//
+//  Parameters:
+//    - dbPath: The path to the SQlite database file
+//    - redisAddr: the address of the Redis server
+//
+//  Returns:
+//    - A pointer to the URLShortener instance
+//    - An error if the database or Redis initialization fails
+func NewURLGeneration(dbPath string, redisAddr string) (*URLShortener, error) {
   db, err := sql.Open("sqlite3", dbPath)
   if err != nil {
     return nil, err
@@ -34,10 +50,22 @@ func NewURLGeneration(dbPath string) (*URLShortener, error) {
     return nil, err
   }
 
+  // Redis Client
+  cache := redis.NewClient(&redis.Options{
+    Addr: redisAddr,
+  })
+
+  // Ping Redis to ensure connectivity
+  if err := cache.Ping(context.Background()).Err(); err != nil {
+    return nil, fmt.Errorf("Failed to connect to [Redis]: %w", err)
+  }
+
   return &URLShortener{
     db: db,
+    cache: cache,
   }, nil
 }
+
 // Generates a unique short URL
 func (us *URLShortener) GenerateShortURL(originalURL string) (string, error) {
   us.mu.Lock()
@@ -65,19 +93,41 @@ func (us *URLShortener) GenerateShortURL(originalURL string) (string, error) {
 
 // Resolves a short URL back to the original URL
 func (us *URLShortener) ResolveShortURL(shortURL string) (string, bool) {
+  ctx := context.Background()
+
+  // Check Redis cache first
+  cachedURL, err := us.cache.Get(ctx, shortURL).Result()
+  if err == nil {
+    log.Printf("[Redis] Cache hit: %s --> %s", shortURL, cachedURL)
+    return cachedURL, true
+  } else if err != redis.Nil { // redis.Nil means key does not exist
+    log.Printf("[Redis] Cache error for %s: %v", shortURL, err)
+  }
+
+  log.Printf("[Redis] Cache miss: %s", shortURL)
+
+  // Fallback to database lookup
   us.mu.Lock()
   defer us.mu.Unlock()
 
   query := `SELECT original_url FROM urls WHERE short_url = ?`
   var originalURL string
-  err := us.db.QueryRow(query, shortURL).Scan(&originalURL)
+  err = us.db.QueryRow(query, shortURL).Scan(&originalURL)
   if err != nil {
+    log.Printf("[DB] Short URL not found: %s", shortURL)
     return "", false
+  }
+
+  // Add result to Redis cache
+  err = us.cache.Set(ctx, shortURL, originalURL, 24*time.Hour).Err()
+  if err != nil {
+    log.Printf("[Redis] Failed to cache short URL: %s -> %s, error: %v", shortURL, originalURL, err)
+  } else {
+    log.Printf("[Redis] Cached short URL: %s -> %s", shortURL, originalURL)
   }
 
   return originalURL, true
 }
-
 // Converts a numeric ID into a Base62 String
 func encodeBase62(num int64) string {
   const charset = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
@@ -98,8 +148,8 @@ type URLShortenerHandler struct {
   Shortener *URLShortener
 }
 
-func NewURLShortenerHandler(dbPath string) (*URLShortenerHandler, error) {
-  shortener, err := NewURLGeneration(dbPath)
+func NewURLShortenerHandler(dbPath, redisAddr string) (*URLShortenerHandler, error) {
+  shortener, err := NewURLGeneration(dbPath, redisAddr)
   if err != nil {
     return nil, err
   }
