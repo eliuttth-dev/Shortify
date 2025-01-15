@@ -93,11 +93,15 @@ func TestGenerateHandler(t *testing.T) {
     payload        string
     expectedStatus int
     expectedError  bool
+    expectedShort  string
   }{
-    {"Valid URL", `{"original_url": "https://github.com/eliuttth-dev"}`, http.StatusOK, false},
-    {"Empty URL", `{"original_url": ""}`, http.StatusBadRequest, true},
-    {"Malformed JSON", `{"original_url":`, http.StatusBadRequest, true},
-    {"Missing URL", `{}`, http.StatusBadRequest, true},
+    {"Valid URL", `{"original_url": "https://github.com/eliuttth-dev"}`, http.StatusOK, false, ""},
+    {"Empty URL", `{"original_url": ""}`, http.StatusBadRequest, true, ""},
+    {"Malformed JSON", `{"original_url":`, http.StatusBadRequest, true, ""},
+    {"Missing URL", `{}`, http.StatusBadRequest, true, ""},
+    {"Custom Short URL", `{"original_url": "https://github.com/eliuttth-dev", "custom_short_url": "eliuth-github"}`, http.StatusOK, false, ""},
+    {"Duplicate Custom Short URL", `{"original_url": "https://github.com", "custom_short_url": "eliuth-github"}`, http.StatusBadRequest, true, ""},
+    {"Invalid Custom Short URL", `{"original_url": "https://github.com/eliuttth-dev", "custom_short_url": "invalid@link"}`, http.StatusBadRequest, true, ""},
   }
 
   for _, tt := range tests {
@@ -126,6 +130,10 @@ func TestGenerateHandler(t *testing.T) {
         if !exists || shortURL == "" {
           t.Errorf("Expected a valid short_url, got %v", body)
         }
+
+        if tt.expectedShort != "" && shortURL != tt.expectedShort {
+          t.Errorf("Expected short_url to be %v, got %v", tt.expectedShort, shortURL)
+        }
       }
     })
   }
@@ -143,7 +151,7 @@ func TestResolveHandler(t *testing.T) {
 
   // Prepopulate the database with a short URL
   originalURL := "https://github.com/eliuttth-dev"
-  shortURL, err := handler.Shortener.GenerateShortURL(originalURL)
+  shortURL, err := handler.Shortener.GenerateShortURL(originalURL, "eliuth-github")
   if err != nil {
     t.Fatalf("Failed to prepopulate database: %v", err)
   }
