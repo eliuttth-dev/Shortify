@@ -15,11 +15,16 @@ import (
   _ "github.com/mattn/go-sqlite3"
 )
 
-
+// Manage the URL shortening and resolution
 type URLShortener struct {
   db *sql.DB
   cache *redis.Client
   mu sync.Mutex
+}
+
+// Handles HTTP request related to URL shortening and resolution
+type URLShortenerHandler struct {
+  Shortener *URLShortener
 }
 
 //  Initializes the URLShortener instance, setting up the SQLite database
@@ -144,10 +149,6 @@ func encodeBase62(num int64) string {
 }
 
 // Handles request related to URL shortening
-type URLShortenerHandler struct {
-  Shortener *URLShortener
-}
-
 func NewURLShortenerHandler(dbPath, redisAddr string) (*URLShortenerHandler, error) {
   shortener, err := NewURLGeneration(dbPath, redisAddr)
   if err != nil {
