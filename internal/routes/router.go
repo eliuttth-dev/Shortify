@@ -5,10 +5,10 @@ import(
   "go-url-shortener/internal/handlers"
 )
 
-func SetupRouter(dbPath string) (*mux.Router, error) {
+func SetupRouter(dbPath, redisAddr string) (*mux.Router, error) {
   r := mux.NewRouter()
 
-  shortenerHandler, err := handlers.NewURLShortenerHandler(dbPath)
+  shortenerHandler, err := handlers.NewURLShortenerHandler(dbPath, redisAddr)
   if err != nil {
     return nil, err
   }
