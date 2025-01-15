@@ -11,7 +11,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4 
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -33,16 +33,16 @@ jobs:
             --health-retries 5
 
       - name: Run Tests
-        run: go test ./internal/handlers -v
+        run: go test ./... -v
 
       - name: Show Test Results
         if: failure()
         run: |
-          echo "Tests Failed"
-          go test ./internal/handlers -v > test_output.log
+          echo "Tests failed"
+          go test ./... -v > test_output.log
           cat test_output.log
 
-      - name: Upload Test Results
+      - name: Upload test results
         uses: actions/upload-artifact@v4
         if: always()
         with:
