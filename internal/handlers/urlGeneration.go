@@ -10,6 +10,7 @@ import (
   "fmt"
   "time"
   "strings"
+  "errors"
   "github.com/redis/go-redis/v9"
   "github.com/gorilla/mux"
   _ "github.com/mattn/go-sqlite3"
@@ -75,7 +76,7 @@ func NewURLGeneration(dbPath string, redisAddr string) (*URLShortener, error) {
 func isValidCustomURL(customURL string) bool {
   const validChars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_"
   for _, char := range customURL {
-    if !strings.ConainsRune(validChars, char) {
+    if !strings.ContainsRune(validChars, char) {
       return false
     }
   }
@@ -100,7 +101,7 @@ func (us *URLShortener) GenerateShortURL(originalURL string, customShortURL stri
       return "", fmt.Errorf("Database error: %v", err)
     }
     if exists {
-      return "". fmt.Errorf("Custom short URL already exists")
+      return "", fmt.Errorf("Custom short URL already exists")
     }
 
     // Insert the ustom short URL into the database
