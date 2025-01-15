@@ -8,7 +8,7 @@ import (
 )
 
 func main(){
-  dbPath := "../urls.db"
+  dbPath := "./urls.db"
   redisAddr := "localhost:6379"
 
   router, err := routes.SetupRouter(dbPath, redisAddr)
