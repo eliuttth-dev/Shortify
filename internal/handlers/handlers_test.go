@@ -8,7 +8,6 @@ import (
   "net/http/httptest"
   "os"
   "testing"
-  "strings"
 
   "github.com/gorilla/mux"
   _ "github.com/mattn/go-sqlite3"
