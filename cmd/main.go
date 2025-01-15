@@ -9,7 +9,9 @@ import (
 
 func main(){
   dbPath := "../urls.db"
-  router, err := routes.SetupRouter(dbPath)
+  redisAddr := "localhost:6379"
+
+  router, err := routes.SetupRouter(dbPath, redisAddr)
   if err != nil {
     log.Fatalf("Failed to set up router: %v", err)
   }
