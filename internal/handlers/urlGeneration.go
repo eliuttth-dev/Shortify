@@ -9,7 +9,8 @@ import (
   "log"
   "fmt"
   "time"
-
+  "strings"
+  "errors"
   "github.com/redis/go-redis/v9"
   "github.com/gorilla/mux"
   _ "github.com/mattn/go-sqlite3"
@@ -71,10 +72,47 @@ func NewURLGeneration(dbPath string, redisAddr string) (*URLShortener, error) {
   }, nil
 }
 
+// CHANGE THIS TO A SEPARATE UTIL FILE
+func isValidCustomURL(customURL string) bool {
+  const validChars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_"
+  for _, char := range customURL {
+    if !strings.ContainsRune(validChars, char) {
+      return false
+    }
+  }
+  return true
+}
+
 // Generates a unique short URL
-func (us *URLShortener) GenerateShortURL(originalURL string) (string, error) {
+func (us *URLShortener) GenerateShortURL(originalURL string, customShortURL string) (string, error) {
   us.mu.Lock()
   defer us.mu.Unlock()
+
+  if customShortURL != "" {
+    if !isValidCustomURL(customShortURL) {
+      return "", errors.New("Invalid characters in custom short URL")
+    }
+    
+    // Check if custom short URL already exits
+    var exists bool
+    query := `SELECT EXISTS(SELECT 1 FROM urls WHERE short_url = ?)`
+    err := us.db.QueryRow(query, customShortURL).Scan(&exists)
+    if err != nil {
+      return "", fmt.Errorf("Database error: %v", err)
+    }
+    if exists {
+      return "", fmt.Errorf("Custom short URL already exists")
+    }
+
+    // Insert the ustom short URL into the database
+    insertQuery := `INSERT INTO urls (short_url, original_url) VALUES (?, ?)`
+    _, err = us.db.Exec(insertQuery, customShortURL, originalURL)
+    if err != nil {
+      return "", fmt.Errorf("Failed to store custom short URL: %v", err)
+    }
+
+    return customShortURL, nil
+  }
 
   // Generate a unique ID for the short URL
   var id int64
@@ -164,6 +202,7 @@ func NewURLShortenerHandler(dbPath, redisAddr string) (*URLShortenerHandler, err
 func (h *URLShortenerHandler) GenerateHandler(w http.ResponseWriter, r *http.Request) {
   var body struct {
     OriginalURL string `json:"original_url"`
+    CustomShortURL string `json:"custom_short_url,omitempty"`
   }
   
   // Decode JSON Body
@@ -179,9 +218,9 @@ func (h *URLShortenerHandler) GenerateHandler(w http.ResponseWriter, r *http.Req
   }
 
   // Generate the short URL
-  shortURL, err := h.Shortener.GenerateShortURL(body.OriginalURL)
+  shortURL, err := h.Shortener.GenerateShortURL(body.OriginalURL, body.CustomShortURL)
   if err != nil {
-    http.Error(w, "Failed to generate short URL: " +err.Error(), http.StatusInternalServerError)
+    http.Error(w, fmt.Sprintf("Failed to generate short URL: %v", err), http.StatusBadRequest)
     return
   }
 
@@ -192,6 +231,7 @@ func (h *URLShortenerHandler) GenerateHandler(w http.ResponseWriter, r *http.Req
   w.Header().Set("Content-Type", "application/json")
   json.NewEncoder(w).Encode(response)
 }
+
 // Handles request to resolve short URL
 func (h *URLShortenerHandler) ResolveHandler(w http.ResponseWriter, r *http.Request) {
   vars := mux.Vars(r)
