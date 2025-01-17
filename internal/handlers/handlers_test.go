@@ -33,7 +33,8 @@ func setupTestDB(t *testing.T) *sql.DB {
   CREATE TABLE IF NOT EXISTS urls (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     short_url TEXT NOT NULL UNIQUE,
-    original_url TEXT NOT NULL
+    original_url TEXT NOT NULL,
+    expiration_time TIMESTAMP NULL
   );`
 
   _, err = db.Exec(createTableQuery)
@@ -151,7 +152,8 @@ func TestResolveHandler(t *testing.T) {
 
   // Prepopulate the database with a short URL
   originalURL := "https://github.com/eliuttth-dev"
-  shortURL, err := handler.Shortener.GenerateShortURL(originalURL, "eliuth-github")
+  expirationTime := time.Now().Add(1 * time.Hour)
+  shortURL, err := handler.Shortener.GenerateShortURL(originalURL, "eliuth-github-test", &expirationTime)
   if err != nil {
     t.Fatalf("Failed to prepopulate database: %v", err)
   }
@@ -191,5 +193,70 @@ func TestResolveHandler(t *testing.T) {
       }
     })
   }
+
+  // Ensure expiration time is set correctly in the DB
+  var dbExpiration time.Time
+  err = handler.Shortener.db.QueryRow("SELECT expiration_time FROM urls WHERE short_url = ?", "eliuth-github-test").Scan(&dbExpiration)
+  if err == sql.ErrNoRows {
+    t.Fatalf("Short URL 'eliuth-github-test' not found in database")
+  } else if err != nil {
+    t.Fatalf("Failed to query expiration time from database: %v", err)
+  }
+
+  if !dbExpiration.Equal(expirationTime) {
+    t.Errorf("Expected expiration time %v, got %v", expirationTime, dbExpiration)
+  }
 }
 
+// Test URL Generation with Expiration
+func TestGenerateWithExpiration(t *testing.T) {
+  db := setupTestDB(t)
+  setupTestRedis(t)
+
+  handler, err := NewURLShortenerHandler("./test_urls.db", "localhost:6379")
+  if err != nil {
+    t.Fatalf("Failed to initialize handler: %v", err)
+  }
+
+  expiration := time.Now().Add(1 * time.Hour)
+  payload := map[string]interface{}{
+    "original_url": "https://github.com/eliuttth-dev",
+    "custom_short_url": "eliuth-github-test",
+    "expiration_time": expiration.Format(time.RFC3339),
+  }
+  payloadBytes, _ := json.Marshal(payload)
+
+  req := httptest.NewRequest("POST", "/generate", bytes.NewBuffer(payloadBytes))
+  req.Header.Set("Content-Type", "application/json")
+  w := httptest.NewRecorder()
+
+  handler.GenerateHandler(w, req)
+  resp := w.Result()
+  defer resp.Body.Close()
+
+  if resp.StatusCode != http.StatusOK {
+    t.Fatalf("Expected status 200, got %d", resp.StatusCode)
+  }
+
+  var body map[string]string
+  if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+    t.Fatalf("Failed to decode response: %v", err)
+  }
+
+  shortURL := body["short_url"]
+  if shortURL != "eliuth-github-test" {
+    t.Errorf("Expected short URL 'eliuth-github-test', got %s", shortURL)
+  }
+
+  // Verify expiration in the DB
+  var dbExpiration time.Time
+  err = db.QueryRow("SELECT expiration_time FROM urls WHERE short_url = ?", "eliuth-github-test").Scan(&dbExpiration)
+  
+  if err != nil {
+    t.Fatalf("Failed to query expiration time: %v", err)
+  }
+
+  if dbExpiration.IsZero() || !dbExpiration.Round(time.Second).Equal(expiration.Round(time.Second)) {
+    t.Errorf("Expected expiration time %v, got %v", expiration, dbExpiration)
+  }
+}
