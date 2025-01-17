@@ -49,7 +49,8 @@ func NewURLGeneration(dbPath string, redisAddr string) (*URLShortener, error) {
   CREATE TABLE IF NOT EXISTS urls (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     short_url TEXT NOT NULL UNIQUE,
-    original_url TEXT NOT NULL
+    original_url TEXT NOT NULL,
+    expiration_time TIMESTAMP NULL
   );`
   _, err = db.Exec(createTableQuery)
   if err != nil {
@@ -66,10 +67,14 @@ func NewURLGeneration(dbPath string, redisAddr string) (*URLShortener, error) {
     return nil, fmt.Errorf("Failed to connect to [Redis]: %w", err)
   }
 
-  return &URLShortener{
+  urlShortener := &URLShortener{
     db: db,
     cache: cache,
-  }, nil
+  }
+
+  go urlShortener.DeleteExpiredURLs()
+
+  return urlShortener, nil
 }
 
 // CHANGE THIS TO A SEPARATE UTIL FILE
@@ -84,7 +89,7 @@ func isValidCustomURL(customURL string) bool {
 }
 
 // Generates a unique short URL
-func (us *URLShortener) GenerateShortURL(originalURL string, customShortURL string) (string, error) {
+func (us *URLShortener) GenerateShortURL(originalURL string, customShortURL string, expirationTime *time.Time) (string, error) {
   us.mu.Lock()
   defer us.mu.Unlock()
 
@@ -105,8 +110,8 @@ func (us *URLShortener) GenerateShortURL(originalURL string, customShortURL stri
     }
 
     // Insert the ustom short URL into the database
-    insertQuery := `INSERT INTO urls (short_url, original_url) VALUES (?, ?)`
-    _, err = us.db.Exec(insertQuery, customShortURL, originalURL)
+    insertQuery := `INSERT INTO urls (short_url, original_url, expiration_time) VALUES (?, ?, ?)`
+    _, err = us.db.Exec(insertQuery, customShortURL, originalURL, expirationTime)
     if err != nil {
       return "", fmt.Errorf("Failed to store custom short URL: %v", err)
     }
@@ -125,8 +130,8 @@ func (us *URLShortener) GenerateShortURL(originalURL string, customShortURL stri
   shortURL := encodeBase62(id)
 
   // Insert the record with the short URL and original URL
-  insertQuery := `INSERT INTO urls (id, short_url, original_url) VALUES (?, ?, ?)`
-  _, err = us.db.Exec(insertQuery, id, shortURL, originalURL)
+  insertQuery := `INSERT INTO urls (id, short_url, original_url, expiration_time) VALUES (?, ?, ?, ?)`
+  _, err = us.db.Exec(insertQuery, id, shortURL, originalURL, expirationTime)
   if err != nil {
       return "", err
   }
@@ -171,7 +176,47 @@ func (us *URLShortener) ResolveShortURL(shortURL string) (string, bool) {
 
   return originalURL, true
 }
-// Converts a numeric ID into a Base62 String
+
+// Delete Expired URLS
+func (us *URLShortener) DeleteExpiredURLs() {
+    ticker := time.NewTicker(1 * time.Hour) 
+    defer ticker.Stop()
+
+    for {
+        <-ticker.C
+        us.mu.Lock()
+
+        // Query to delete expired URLs from the database
+        query := `DELETE FROM urls WHERE expiration_time IS NOT NULL AND expiration_time < ?`
+        _, err := us.db.Exec(query, time.Now())
+        if err != nil {
+            log.Printf("Failed to delete expired URLs from DB: %v", err)
+        }
+
+        // Clean up Redis
+        ctx := context.Background()
+        rows, err := us.db.Query(`SELECT short_url FROM urls WHERE expiration_time IS NOT NULL AND expiration_time < ?`, time.Now())
+        if err != nil {
+            log.Printf("Failed to query expired URLs for Redis cleanup: %v", err)
+            us.mu.Unlock()
+            continue
+        }
+
+        var shortURL string
+        for rows.Next() {
+            if err := rows.Scan(&shortURL); err == nil {
+                if err := us.cache.Del(ctx, shortURL).Err(); err != nil {
+                    log.Printf("Failed to delete expired short URL from Redis: %s, error: %v", shortURL, err)
+                }
+            }
+        }
+        rows.Close()
+
+        us.mu.Unlock()
+    }
+}
+
+// Converts a numeric ID into a Base62 String <CHANGE THIS TO A UTIL FILE>
 func encodeBase62(num int64) string {
   const charset = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
   base := int64(len(charset))
@@ -201,8 +246,9 @@ func NewURLShortenerHandler(dbPath, redisAddr string) (*URLShortenerHandler, err
 // Handles request to generate short URL
 func (h *URLShortenerHandler) GenerateHandler(w http.ResponseWriter, r *http.Request) {
   var body struct {
-    OriginalURL string `json:"original_url"`
+    OriginalURL    string `json:"original_url"`
     CustomShortURL string `json:"custom_short_url,omitempty"`
+    ExpirationTime string `json:"expiration_time,omitempty"`
   }
   
   // Decode JSON Body
@@ -217,8 +263,18 @@ func (h *URLShortenerHandler) GenerateHandler(w http.ResponseWriter, r *http.Req
     return
   }
 
+  var expirationTime *time.Time
+  if body.ExpirationTime != "" {
+    parsedTime, err := time.Parse(time.RFC3339, body.ExpirationTime)
+    if err != nil {
+      http.Error(w, "Invalid 'expiration_time' format", http.StatusBadRequest)
+      return
+    }
+    expirationTime = &parsedTime
+  }
+
   // Generate the short URL
-  shortURL, err := h.Shortener.GenerateShortURL(body.OriginalURL, body.CustomShortURL)
+  shortURL, err := h.Shortener.GenerateShortURL(body.OriginalURL, body.CustomShortURL, expirationTime)
   if err != nil {
     http.Error(w, fmt.Sprintf("Failed to generate short URL: %v", err), http.StatusBadRequest)
     return
