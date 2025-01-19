@@ -218,7 +218,7 @@ func TestGenerateWithExpiration(t *testing.T) {
     t.Fatalf("Failed to initialize handler: %v", err)
   }
 
-  expiration := time.Now().Add(1 * time.Second)
+  expiration := time.Now().Add(1 * time.Millisecond)
   payload := map[string]interface{}{
     "original_url": "https://github.com/eliuttth-dev",
     "custom_short_url": "eliuth-github-test",
